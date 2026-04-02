@@ -22,3 +22,5 @@ db_data/
 .DS_Store
 *.log
 npm-debug.log*
+delivery_acceptance_audit_final.md
+frontend_acceptance_inspection_final.md
