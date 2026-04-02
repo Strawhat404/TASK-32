@@ -10,9 +10,6 @@ build/
 # Secrets & Environment
 .env
 .env.local
-*.pem
-*.key
-certs/
 
 # Database data (Crucial for Postgres)
 postgres_data/

@@ -53,7 +53,6 @@ services:
         condition: service_healthy
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
-      - ./certs:/certs:ro,z
       - caddy_data:/data
       - caddy_config:/config
     ports:
