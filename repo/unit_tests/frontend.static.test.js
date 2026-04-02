@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const FRONTEND_SRC = path.resolve(import.meta.dirname, '../frontend/src');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FRONTEND_SRC = path.resolve(__dirname, '../frontend/src');
 
 function readFiles(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
