@@ -14,7 +14,7 @@ services:
       - db_data:/var/lib/postgresql/data:z
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro,z
     healthcheck:
-      test: ["CMD-SHELL", "PGPASSWORD=${POSTGRES_PASSWORD:-changeme} psql -h 127.0.0.1 -U task3 -d task3 -tAc \"SELECT 1 FROM roles LIMIT 1\" >/dev/null"]
+      test: ["CMD-SHELL", "PGPASSWORD=${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U task3 -d task3 -tAc \"SELECT 1 FROM roles LIMIT 1\" >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -37,26 +37,17 @@ services:
       DB_NAME: task3
       APP_AES_KEY: ${APP_AES_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      ALLOWED_ORIGIN: http://localhost:5173
     depends_on:
       db:
         condition: service_healthy
+    ports:
+      - "3000:3000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 15
-
-  caddy:
-    image: caddy:2.8-alpine
-    depends_on:
-      backend:
-        condition: service_healthy
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
-      - caddy_data:/data
-      - caddy_config:/config
-    ports:
-      - "3443:3443"
 
   frontend:
     build:
@@ -64,12 +55,10 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      caddy:
-        condition: service_started
+    environment:
+      VITE_API_BASE: http://localhost:3000
     ports:
       - "5173:5173"
 
 volumes:
   db_data:
-  caddy_data:
-  caddy_config:

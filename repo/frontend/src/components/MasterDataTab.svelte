@@ -78,12 +78,13 @@
     try {
       error = ''; notice = '';
       const payload = { ...ruleForm, priority: Number(ruleForm.priority) };
-      if (!payload.effective_start_at) payload.effective_start_at = new Date().toISOString();
-      if (payload.effective_end_at) {
-        const d = new Date(payload.effective_end_at);
-        d.setHours(23, 59, 0, 0);
-        payload.effective_end_at = d.toISOString();
-      } else { delete payload.effective_end_at; }
+      if (!payload.effective_start_at) {
+        const nd = new Date();
+        payload.effective_start_at = `${nd.getMonth() + 1}/${nd.getDate()}/${nd.getFullYear()}`;
+      }
+      if (!payload.effective_end_at) {
+        delete payload.effective_end_at;
+      }
       await api('/api/master/sku-rules', { method: 'POST', body: JSON.stringify(payload) });
       notice = 'Coding rule created.';
       ruleForm = { name: '', template: 'SKU-####', entity_type: 'sku', effective_start_at: '', effective_end_at: '', priority: 100 };
@@ -317,11 +318,11 @@
         <input class={fieldClasses()} bind:value={ruleForm.template} placeholder="Template (e.g. SKU-####)" />
         <div>
           <label class="block text-xs text-slate-400 mb-1">Effective Start (MM/DD/YYYY)</label>
-          <input class={fieldClasses()} type="date" bind:value={ruleForm.effective_start_at} />
+          <input class={fieldClasses()} type="text" placeholder="MM/DD/YYYY" bind:value={ruleForm.effective_start_at} />
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1">Effective End (expires at 11:59 PM)</label>
-          <input class={fieldClasses()} type="date" bind:value={ruleForm.effective_end_at} />
+          <input class={fieldClasses()} type="text" placeholder="MM/DD/YYYY" bind:value={ruleForm.effective_end_at} />
         </div>
         <input class={fieldClasses()} type="number" bind:value={ruleForm.priority} placeholder="Priority" />
         <button class={btnClasses()} on:click={createRule}>Create Rule</button>
@@ -390,7 +391,7 @@
               <input class={fieldClasses()} bind:value={lotForm.lot_number} placeholder="Lot number" />
               <input class={fieldClasses()} type="date" bind:value={lotForm.manufactured_at} placeholder="Manufactured at" />
               <input class={fieldClasses()} type="date" bind:value={lotForm.expires_at} placeholder="Lot expires at" />
-              <input class={fieldClasses()} bind:value={lotForm.batch_attributes} placeholder='Attributes JSON e.g. {"color":"red"}' />
+              <input class={fieldClasses()} bind:value={lotForm.batch_attributes} placeholder="Attributes JSON e.g. color:red" />
             </div>
             <button class={btnSmall()} on:click={createLot}>Add Lot</button>
             {#each lots as lt}<div class="text-xs text-slate-500 mt-1">#{lt.lot_number} — mfg: {lt.manufactured_at || '—'} exp: {lt.expires_at || '—'}</div>{/each}
@@ -405,7 +406,7 @@
               </select>
               <input class={fieldClasses()} type="number" bind:value={packForm.units_per_package} placeholder="Units per package" />
               <input class={fieldClasses()} bind:value={packForm.weight_grams} placeholder="Weight (grams)" />
-              <input class={fieldClasses()} bind:value={packForm.dimensions_cm} placeholder='Dimensions JSON e.g. {"l":30,"w":20,"h":10}' />
+              <input class={fieldClasses()} bind:value={packForm.dimensions_cm} placeholder="Dimensions JSON e.g. l:30,w:20,h:10" />
             </div>
             <button class={btnSmall()} on:click={createPackaging}>Add Packaging</button>
             {#each packaging as pk}<div class="text-xs text-slate-500 mt-1">{pk.package_type} — {pk.units_per_package} units, {pk.weight_grams || '?'}g</div>{/each}

@@ -1,4 +1,6 @@
 import fs from 'fs/promises';
+import path from 'path';
+import crypto from 'crypto';
 import Fastify from 'fastify';
 import { pool, query } from './db.js';
 import { audit, authenticate, authorize, login, revokeSession } from './auth.js';
@@ -28,7 +30,7 @@ import { dedupeReason } from './customer-dedupe.js';
 import { GRADE_THRESHOLDS, gradeForScore, mergeRounds, weightedAggregation } from './scoring.js';
 
 const app = Fastify({ logger: true });
-const ALLOWED_ORIGIN = 'http://localhost:5173';
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
 const ADMIN_ROLES = ['Administrator'];
 const STAFF_ROLES = ['Administrator', 'Store Manager', 'Inventory Clerk'];
 const FORUM_MODERATION_ROLES = ['Administrator', 'Moderator'];
@@ -50,6 +52,15 @@ function requireBodyFields(payload, fields) {
       throw new Error(`missing field: ${f}`);
     }
   }
+}
+
+function resolveTmpPath(filePath) {
+  const tmpRoot = path.resolve('/tmp');
+  const resolvedPath = path.resolve(path.join(tmpRoot, filePath));
+  if (resolvedPath !== tmpRoot && !resolvedPath.startsWith(`${tmpRoot}${path.sep}`)) {
+    throw new Error('Path must be under /tmp');
+  }
+  return resolvedPath;
 }
 
 function sleep(ms) {
@@ -276,6 +287,17 @@ app.post('/api/master/sku-rules', { preHandler: [authenticate, authorize(STAFF_R
   try {
     const p = request.body || {};
     requireBodyFields(p, ['name', 'template', 'effective_start_at']);
+
+    let startAt = p.effective_start_at;
+    let endAt = p.effective_end_at || null;
+    if (String(startAt).includes('/')) {
+      const [mm, dd, yyyy] = String(startAt).split('/').map(Number);
+      startAt = new Date(Date.UTC(yyyy, mm - 1, dd, 0, 0, 0, 0)).toISOString();
+    }
+    if (endAt && String(endAt).includes('/')) {
+      endAt = parseExpiryDateToEndOfDay(endAt).toISOString();
+    }
+
     const res = await query(
       `INSERT INTO sku_coding_rules (name, entity_type, template, effective_start_at, effective_end_at, priority, is_active)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -284,8 +306,8 @@ app.post('/api/master/sku-rules', { preHandler: [authenticate, authorize(STAFF_R
         p.name,
         p.entity_type || 'sku',
         p.template,
-        p.effective_start_at,
-        p.effective_end_at || null,
+        startAt,
+        endAt,
         Number(p.priority || 100),
         p.is_active !== false,
       ]
@@ -541,7 +563,7 @@ app.post('/api/master/customers', { preHandler: [authenticate, authorize(STAFF_R
       ]
     );
     await immutableLog('create', request.user.id, 'customer', r.rows[0].id, {
-      dedupe_keys: { email: p.email || null, normalized_phone: normalized || null },
+      dedupe_keys: {},
       consent: {
         marketing_email_consent: !!p.marketing_email_consent,
         marketing_sms_consent: !!p.marketing_sms_consent,
@@ -557,12 +579,19 @@ app.get('/api/master/customers', { preHandler: [authenticate, authorize(STAFF_RO
   const includeSensitive =
     request.query.include_sensitive === 'true' && roleMatches(request.user.role, ADMIN_ROLES);
   const r = await query('SELECT * FROM customers ORDER BY created_at DESC');
-  const items = r.rows.map((row) => ({
-    ...row,
-    phone_masked: maskPhone(row.phone),
-    address: includeSensitive ? decryptSensitive(row.address_encrypted) : '*** MASKED ***',
-    notes: includeSensitive ? decryptSensitive(row.notes_encrypted) : '*** MASKED ***',
-  }));
+  const items = r.rows.map((row) => {
+    const dto = {
+      ...row,
+      phone_masked: maskPhone(row.phone),
+      address: includeSensitive ? decryptSensitive(row.address_encrypted) : '*** MASKED ***',
+      notes: includeSensitive ? decryptSensitive(row.notes_encrypted) : '*** MASKED ***',
+    };
+    if (!includeSensitive) {
+      delete dto.phone;
+      delete dto.normalized_phone;
+    }
+    return dto;
+  });
   return { items };
 });
 
@@ -595,7 +624,15 @@ app.patch('/api/master/customers/:id', { preHandler: [authenticate, authorize(ST
     ]
   );
   if (!r.rows.length) return reply.code(404).send({ error: 'Customer not found' });
-  await immutableLog('update', request.user.id, 'customer', request.params.id, p);
+  const sanitizedPayload = {};
+  if (p.full_name !== undefined) sanitizedPayload.full_name = p.full_name;
+  if (p.marketing_email_consent !== undefined) {
+    sanitizedPayload.marketing_email_consent = !!p.marketing_email_consent;
+  }
+  if (p.marketing_sms_consent !== undefined) {
+    sanitizedPayload.marketing_sms_consent = !!p.marketing_sms_consent;
+  }
+  await immutableLog('update', request.user.id, 'customer', request.params.id, sanitizedPayload);
   return r.rows[0];
 });
 
@@ -649,17 +686,83 @@ app.post('/api/master/customers/dedupe-merge', { preHandler: [authenticate, auth
   }
 });
 
+app.post('/api/master/customers/:id/delete-request', { preHandler: [authenticate, authorize(ADMIN_ROLES)] }, async (request, reply) => {
+  try {
+    const updated = await query(
+      `UPDATE customers SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [request.params.id]
+    );
+    if (!updated.rows.length) return reply.code(404).send({ error: 'Customer not found' });
+
+    const restoreDeadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const reqIns = await query(
+      `INSERT INTO customer_deletion_requests (customer_id, requested_by, restore_deadline)
+       VALUES ($1,$2,$3) RETURNING *`,
+      [request.params.id, request.user.id, restoreDeadline]
+    );
+
+    await immutableLog('delete_request', request.user.id, 'customer', request.params.id, {
+      restore_deadline: restoreDeadline.toISOString(),
+    });
+    return reqIns.rows[0];
+  } catch (e) {
+    return reply.code(400).send({ error: e.message });
+  }
+});
+
+app.post('/api/master/customers/deletion/:id/restore', { preHandler: [authenticate, authorize(ADMIN_ROLES)] }, async (request, reply) => {
+  const dr = await query('SELECT * FROM customer_deletion_requests WHERE id=$1', [request.params.id]);
+  if (!dr.rows.length) return reply.code(404).send({ error: 'deletion request not found' });
+  const reqRow = dr.rows[0];
+  if (reqRow.is_purged) return reply.code(400).send({ error: 'already purged' });
+  if (reqRow.restored_at) return reply.code(400).send({ error: 'already restored' });
+  if (new Date(reqRow.restore_deadline) < new Date()) {
+    return reply.code(400).send({ error: 'restore window expired' });
+  }
+
+  await query('UPDATE customers SET is_active = TRUE, updated_at = NOW() WHERE id = $1', [reqRow.customer_id]);
+  await query('UPDATE customer_deletion_requests SET restored_at = NOW() WHERE id = $1', [request.params.id]);
+  await immutableLog('restore', request.user.id, 'customer', reqRow.customer_id, {
+    request_id: request.params.id,
+  });
+  return { success: true };
+});
+
+app.post('/api/master/customers/retention/run', { preHandler: [authenticate, authorize(ADMIN_ROLES)] }, async () => {
+  const purgeCandidates = await query(
+    `SELECT * FROM customer_deletion_requests
+     WHERE is_purged = FALSE
+       AND restored_at IS NULL
+       AND restore_deadline < NOW()`
+  );
+
+  let purged = 0;
+  for (const row of purgeCandidates.rows) {
+    const payload = await query('SELECT * FROM customers WHERE id=$1', [row.customer_id]);
+    await query(
+      `INSERT INTO customer_tombstone_reports (customer_id, report_payload, retain_until)
+       VALUES ($1,$2,NOW() + INTERVAL '7 years')`,
+      [row.customer_id, payload.rows[0] || {}]
+    );
+    await query('DELETE FROM customers WHERE id = $1', [row.customer_id]);
+    await query('UPDATE customer_deletion_requests SET is_purged = TRUE WHERE id = $1', [row.id]);
+    purged += 1;
+  }
+  return { purged_deleted_content: purged };
+});
+
 app.post('/api/master/customers/import-csv', { preHandler: [authenticate, authorize(ADMIN_ROLES)] }, async (request, reply) => {
   try {
     const { file_path } = request.body || {};
     requireBodyFields(request.body || {}, ['file_path']);
-    const text = await readCsvFile(file_path);
+    const safePath = resolveTmpPath(file_path);
+    const text = await readCsvFile(safePath);
     const scan = scanContentForDlp(text);
     await query(
       'INSERT INTO dlp_events (event_type, reason, source_path, details) VALUES ($1,$2,$3,$4)',
-      [scan.status, scan.reason, file_path, { bytes: text.length }]
+      [scan.status, scan.reason, safePath, { bytes: text.length }]
     );
-    await immutableLog(scan.status, request.user.id, 'csv_import', file_path, { reason: scan.reason });
+    await immutableLog(scan.status, request.user.id, 'csv_import', safePath, { reason: scan.reason });
     if (scan.status !== 'accepted') {
       return reply.code(400).send({ error: `CSV ${scan.status}: ${scan.reason}` });
     }
@@ -680,9 +783,10 @@ app.post('/api/master/customers/import-csv', { preHandler: [authenticate, author
       );
       if (existing.rows.length) {
         merged += 1;
+        const { address, notes, phone, ...safeRow } = row;
         await immutableLog('merge_hint', request.user.id, 'customer', existing.rows[0].id, {
           by: email ? 'email' : 'normalized_phone',
-          row,
+          row: safeRow,
         });
         continue;
       }
@@ -711,14 +815,15 @@ app.post('/api/master/customers/export-csv', { preHandler: [authenticate, author
   try {
     const { file_path } = request.body || {};
     requireBodyFields(request.body || {}, ['file_path']);
+    const safePath = resolveTmpPath(file_path);
     const r = await query(
       `SELECT id, full_name, email, phone, marketing_email_consent, marketing_sms_consent, created_at
        FROM customers ORDER BY created_at DESC`
     );
     const csv = toCsv(r.rows, ['id', 'full_name', 'email', 'phone', 'marketing_email_consent', 'marketing_sms_consent', 'created_at']);
-    await fs.writeFile(file_path, csv, 'utf8');
-    await immutableLog('export', request.user.id, 'customer_csv', file_path, { count: r.rows.length });
-    return { success: true, count: r.rows.length, file_path };
+    await fs.writeFile(safePath, csv, 'utf8');
+    await immutableLog('export', request.user.id, 'customer_csv', safePath, { count: r.rows.length });
+    return { success: true, count: r.rows.length, file_path: safePath };
   } catch (e) {
     return reply.code(400).send({ error: e.message });
   }
@@ -1036,7 +1141,7 @@ app.post('/api/commerce/checkout/place', { preHandler: authenticate }, async (re
   }
 });
 
-app.post('/api/scoring/calculate', { preHandler: authenticate }, async (request, reply) => {
+app.post('/api/scoring/calculate', { preHandler: [authenticate, authorize(STAFF_ROLES)] }, async (request, reply) => {
   try {
     const p = request.body || {};
     requireBodyFields(p, ['subject_id', 'round_key', 'metrics', 'weights', 'store_code']);
@@ -1077,7 +1182,10 @@ app.post('/api/scoring/calculate', { preHandler: authenticate }, async (request,
   }
 });
 
-app.get('/api/scoring/ledger/:subjectId', { preHandler: authenticate }, async (request) => {
+app.get('/api/scoring/ledger/:subjectId', { preHandler: authenticate }, async (request, reply) => {
+  if (!roleMatches(request.user.role, ADMIN_ROLES) && request.user.id !== request.params.subjectId && request.user.username !== request.params.subjectId) {
+    return reply.code(403).send({ error: 'Access denied to this ledger' });
+  }
   const r = await query(
     `SELECT sal.*, s.code AS store_code
      FROM scoring_adjustment_ledger sal
@@ -1110,7 +1218,7 @@ app.get('/api/scoring/grades-rankings', { preHandler: authenticate }, async (req
   );
   const rankings = r.rows.map((row, index) => ({
     rank: index + 1,
-    subject_id: row.subject_id,
+    subject_id_hash: crypto.createHash('sha256').update(String(row.subject_id)).digest('hex').slice(0, 12),
     aggregated_score: Number(row.aggregated_score),
     grade: gradeForScore(row.aggregated_score),
     store_code: row.store_code,
@@ -1208,14 +1316,14 @@ app.post('/api/forum/retention/run', { preHandler: [authenticate, authorize(ADMI
   }
 
   const archivedForumLogs = await query(
-    `DELETE FROM audit_logs
-     WHERE entity_type LIKE 'forum_%'
+    `DELETE FROM immutable_logs
+     WHERE entity_type IN ('thread', 'post')
        AND created_at < NOW() - INTERVAL '365 days'
      RETURNING id`
   );
   const tombstonePurge = await query(
     `DELETE FROM forum_tombstone_reports
-     WHERE retain_until < NOW()
+     WHERE created_at < NOW() - INTERVAL '365 days'
      RETURNING id`
   );
 
@@ -1392,6 +1500,24 @@ app.post('/api/bookings', { preHandler: authenticate }, async (request, reply) =
       startAt: p.start_at,
       endAt: p.end_at,
     });
+
+    const scriptRes = await query('SELECT required_props FROM scripts WHERE id=$1', [p.script_id]);
+    if (!scriptRes.rows.length) return reply.code(404).send({ error: 'script not found' });
+    const props = scriptRes.rows[0].required_props || [];
+
+    if (props.length > 0) {
+      const propConflict = await query(
+        `SELECT b.id FROM bookings b
+         JOIN scripts s ON s.id = b.script_id
+         WHERE b.status IN ('pending', 'confirmed')
+           AND b.start_at < $2 AND b.end_at > $1
+           AND s.required_props && $3::text[]`,
+        [p.start_at, p.end_at, props]
+      );
+      if (propConflict.rows.length > 0) {
+        return reply.code(400).send({ error: 'Required props are currently in use by another booking' });
+      }
+    }
   } catch (error) {
     return reply.code(400).send({ error: error.message });
   }
@@ -1449,13 +1575,15 @@ app.post('/api/forum/sections', { preHandler: [authenticate, authorize(FORUM_MOD
 app.get('/api/forum/threads', { preHandler: authenticate }, async (request, reply) => {
   const sectionId = request.query.section_id;
   if (!sectionId) return reply.code(400).send({ error: 'section_id is required' });
+  const isAdmin = roleMatches(request.user.role, FORUM_MODERATION_ROLES);
+  const filter = isAdmin ? '' : 'AND ft.archived = FALSE';
   const res = await query(
     `SELECT ft.*,
             COALESCE(array_remove(array_agg(tt.name ORDER BY tt.name), NULL), '{}') AS topic_tags
      FROM forum_threads ft
      LEFT JOIN forum_thread_tags ftt ON ftt.thread_id = ft.id
      LEFT JOIN topic_tags tt ON tt.id = ftt.tag_id
-     WHERE ft.section_id=$1
+     WHERE ft.section_id=$1 ${filter}
      GROUP BY ft.id
      ORDER BY ft.created_at DESC`,
     [sectionId]
@@ -1466,6 +1594,11 @@ app.get('/api/forum/threads', { preHandler: authenticate }, async (request, repl
 app.post('/api/forum/threads', { preHandler: authenticate }, async (request, reply) => {
   const { section_id, title, body, topic_tags = [] } = request.body || {};
   if (!section_id || !title || !body) return reply.code(400).send({ error: 'section_id, title, body required' });
+  
+  const secReq = await query('SELECT locked, archived FROM forum_sections WHERE id=$1', [section_id]);
+  if (!secReq.rows.length) return reply.code(404).send({ error: 'Section not found' });
+  if (secReq.rows[0].locked || secReq.rows[0].archived) return reply.code(403).send({ error: 'Section is locked or archived' });
+
   const res = await query(
     `INSERT INTO forum_threads (section_id, title, body, author_user_id)
      VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -1498,6 +1631,8 @@ app.get('/api/forum/tags', { preHandler: authenticate }, async () => {
 
 app.get('/api/forum/threads/by-tag/:tag', { preHandler: authenticate }, async (request) => {
   const tag = String(request.params.tag || '').trim().toLowerCase();
+  const isAdmin = roleMatches(request.user.role, FORUM_MODERATION_ROLES);
+  const filter = isAdmin ? '' : 'AND ft.archived = FALSE';
   const res = await query(
     `SELECT ft.*,
             COALESCE(array_remove(array_agg(tt2.name ORDER BY tt2.name), NULL), '{}') AS topic_tags
@@ -1506,7 +1641,7 @@ app.get('/api/forum/threads/by-tag/:tag', { preHandler: authenticate }, async (r
      JOIN topic_tags tt ON tt.id = ftt.tag_id
      LEFT JOIN forum_thread_tags ftt2 ON ftt2.thread_id = ft.id
      LEFT JOIN topic_tags tt2 ON tt2.id = ftt2.tag_id
-     WHERE tt.name = $1
+     WHERE tt.name = $1 ${filter}
      GROUP BY ft.id
      ORDER BY ft.created_at DESC`,
     [tag]
@@ -1515,13 +1650,28 @@ app.get('/api/forum/threads/by-tag/:tag', { preHandler: authenticate }, async (r
 });
 
 app.get('/api/forum/threads/:id/posts', { preHandler: authenticate }, async (request) => {
-  const res = await query('SELECT * FROM forum_posts WHERE thread_id=$1 ORDER BY created_at ASC', [request.params.id]);
+  const isAdmin = roleMatches(request.user.role, FORUM_MODERATION_ROLES);
+  const qs = isAdmin 
+    ? 'SELECT * FROM forum_posts WHERE thread_id=$1 ORDER BY created_at ASC'
+    : 'SELECT * FROM forum_posts WHERE thread_id=$1 AND archived = FALSE ORDER BY created_at ASC';
+  const res = await query(qs, [request.params.id]);
   return { items: res.rows };
 });
 
 app.post('/api/forum/posts', { preHandler: authenticate }, async (request, reply) => {
   const { thread_id, parent_post_id = null, body } = request.body || {};
   if (!thread_id || !body) return reply.code(400).send({ error: 'thread_id and body required' });
+
+  const thReq = await query('SELECT locked, archived FROM forum_threads WHERE id=$1', [thread_id]);
+  if (!thReq.rows.length) return reply.code(404).send({ error: 'Thread not found' });
+  if (thReq.rows[0].locked || thReq.rows[0].archived) return reply.code(403).send({ error: 'Thread is locked or archived' });
+
+  if (parent_post_id) {
+    const parentReq = await query('SELECT locked, archived FROM forum_posts WHERE id=$1', [parent_post_id]);
+    if (!parentReq.rows.length) return reply.code(404).send({ error: 'Parent post not found' });
+    if (parentReq.rows[0].locked || parentReq.rows[0].archived) return reply.code(403).send({ error: 'Parent post is locked or archived' });
+  }
+
   const res = await query(
     `INSERT INTO forum_posts (thread_id, parent_post_id, body, author_user_id)
      VALUES ($1,$2,$3,$4) RETURNING *`,

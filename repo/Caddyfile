@@ -2,3 +2,8 @@
   tls /certs/server.crt /certs/server.key
   reverse_proxy backend:3000
 }
+
+:5173 {
+  tls /certs/server.crt /certs/server.key
+  reverse_proxy frontend:5173
+}

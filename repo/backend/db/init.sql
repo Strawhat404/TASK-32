@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS customers (
   marketing_sms_consent BOOLEAN NOT NULL DEFAULT FALSE,
   address_encrypted TEXT,
   notes_encrypted TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -271,6 +272,24 @@ CREATE TABLE IF NOT EXISTS customer_merge_logs (
   merged_by_user_id UUID REFERENCES users(id),
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS customer_deletion_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL REFERENCES customers(id),
+  requested_by UUID REFERENCES users(id),
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  restore_deadline TIMESTAMPTZ NOT NULL,
+  restored_at TIMESTAMPTZ,
+  is_purged BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS customer_tombstone_reports (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL,
+  report_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  retain_until TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stores (

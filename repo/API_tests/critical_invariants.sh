@@ -324,11 +324,11 @@ code=$(req POST "/api/scoring/calculate" "{\"subject_id\":\"rank-b\",\"round_key
 assert_code "$code" "201" "create scoring entry B"
 code=$(req GET "/api/scoring/grades-rankings?store_code=MAIN&from=2026-01-01T00:00:00Z&to=2026-12-31T23:59:59Z" "" "$ADMIN_TOKEN" "$TMP_DIR/scoring_rankings.json")
 assert_code "$code" "200" "load scoring rankings"
-top_subject=$(json_get "$TMP_DIR/scoring_rankings.json" "rankings.0.subject_id")
+top_subject=$(json_get "$TMP_DIR/scoring_rankings.json" "rankings.0.subject_id_hash")
 top_grade=$(json_get "$TMP_DIR/scoring_rankings.json" "rankings.0.grade")
-second_subject=$(json_get "$TMP_DIR/scoring_rankings.json" "rankings.1.subject_id")
-assert_equals "$top_subject" "rank-a" "rankings sorted by aggregated score"
+second_subject=$(json_get "$TMP_DIR/scoring_rankings.json" "rankings.1.subject_id_hash")
+assert_equals "$top_subject" "c26152897196" "rankings sorted by aggregated score"
 assert_equals "$top_grade" "A" "top ranking grade is deterministic"
-assert_equals "$second_subject" "rank-b" "second ranking subject order is deterministic"
+assert_equals "$second_subject" "1561e64f78e5" "second ranking subject order is deterministic"
 
 echo "[api] All critical invariant API checks passed."

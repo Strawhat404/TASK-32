@@ -7,7 +7,7 @@
 - Prompt-critical invariants enforced server-side with automated tests.
 
 ## Runtime Topology
-- `frontend` (Vite + Svelte + Tailwind) exposed on `http://localhost:5173`.
+- `frontend` (Vite + Svelte + Tailwind) exposed on `https://localhost:5173`.
 - `caddy` exposed on `https://localhost:3443`, reverse-proxying backend with mounted local certificate files from `repo/certs/server.crt` and `repo/certs/server.key`.
 - `backend` (Fastify + PostgreSQL) not exposed to host ports.
 - `db` (PostgreSQL 16) initialized by `backend/db/init.sql`.
@@ -52,7 +52,7 @@
 
 ## Scoring + Forum Lifecycle + DLP
 - Scoring supports weighted aggregation, mapping rules, missing-value strategy (`drop`, `zero-fill`, `average-fill`), multi-round merge, and ledger writes.
-- Forum lifecycle supports admin-restorable deletion window (7 days), archive-log purge after 365 days, and 7-year tombstone report semantics.
+- Forum lifecycle supports admin-restorable deletion window (7 days) plus 365-day purges for archived immutable logs and tombstone reports.
 - DLP for offline CSV import: regex SSN scan + local malware-signature scan with reject/quarantine immutable logging.
 
 ## CSV and Testability
@@ -69,6 +69,6 @@
   - macOS: open Keychain Access, import `repo/certs/server.crt`, and mark it trusted.
   - Windows: import `repo/certs/server.crt` into `Trusted Root Certification Authorities`.
 - Service URLs:
-  - Frontend: `http://localhost:5173`
+  - Frontend: `https://localhost:5173`
   - Backend health through Caddy: `https://localhost:3443/api/health`
   - Proxied API base: `https://localhost:3443`

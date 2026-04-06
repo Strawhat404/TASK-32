@@ -3,11 +3,12 @@
 Base URL (proxied): `https://localhost:3443`
 
 Local URLs:
-- Frontend UI: `http://localhost:5173`
+- Frontend UI: `https://localhost:5173`
 - API/health via Caddy: `https://localhost:3443/api/health`
 - TLS certificate files mounted into Caddy:
   - `repo/certs/server.crt`
   - `repo/certs/server.key`
+- Generate certs before first run: `./repo/certs/generate_certs.sh`
 - Trust/install note:
   - import `repo/certs/server.crt` into the local OS/browser trust store to avoid browser certificate warnings.
 
@@ -21,13 +22,13 @@ Local URLs:
 
 ## Master Data
 - Coding rules:
-  - `GET /api/master/sku-rules` (admin)
-  - `POST /api/master/sku-rules` (admin)
+  - `GET /api/master/sku-rules` (Staff Roles)
+  - `POST /api/master/sku-rules` (Staff Roles)
 - SKU + related:
   - `GET /api/master/skus`
-  - `POST /api/master/skus` (admin, generates code via active rule)
-  - `PATCH /api/master/skus/:id` (admin)
-  - `DELETE /api/master/skus/:id` (admin)
+  - `POST /api/master/skus` (Staff Roles, generates code via active rule)
+  - `PATCH /api/master/skus/:id` (Staff Roles)
+  - `DELETE /api/master/skus/:id` (Staff Roles)
   - `GET|POST /api/master/skus/:id/barcodes`
   - `GET|POST /api/master/skus/:id/lots`
   - `GET|POST /api/master/skus/:id/packaging`
@@ -36,9 +37,9 @@ Local URLs:
   - `GET|POST /api/master/carriers`
 - Stores and pricing setup:
   - `GET /api/master/stores`
-  - `POST /api/master/inventory` (admin)
-  - `POST /api/master/shipping-rates` (admin)
-  - `POST /api/master/promotions` (admin)
+  - `POST /api/master/inventory` (Staff Roles)
+  - `POST /api/master/shipping-rates` (Staff Roles)
+  - `POST /api/master/promotions` (Staff Roles)
 - Customers + dedupe + CSV:
   - `GET|POST|PATCH /api/master/customers`
   - `GET /api/master/customers/dedupe-scan` (admin)

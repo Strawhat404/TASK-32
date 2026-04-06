@@ -17,5 +17,6 @@
    ```
 
 ## Where to Access
-- **Frontend Dashboard**: [http://localhost:5173](http://localhost:5173)
+- **Frontend Dashboard**: [https://localhost:5173](https://localhost:5173) (via Caddy TLS)
 - **Backend API**: `https://localhost:3443`
+

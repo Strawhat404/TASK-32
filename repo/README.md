@@ -5,7 +5,11 @@
    ```bash
    cp .env.example .env   # then edit .env with your own secrets
    ```
-2. Start the stack:
+2. Generate TLS certificates (required before first run):
+   ```bash
+   ./certs/generate_certs.sh
+   ```
+3. Start the stack:
    ```bash
    docker compose up
    ```
@@ -32,9 +36,7 @@ ADMIN_PASSWORD=<your_password> ./run_tests.sh
 
 ## Access
 - **Frontend**: [http://localhost:5173](http://localhost:5173)
-- **Backend API (via Caddy TLS)**: `https://localhost:3443`
-
-To trust the self-signed TLS certificate, add `./certs/server.crt` to your system/browser trust store, or accept the browser warning.
+- **Backend API**: `http://localhost:3000`
 
 ## Tech Stack
 - **Frontend**: Svelte, Vite

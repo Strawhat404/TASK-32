@@ -9,9 +9,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'https://caddy:3443',
+        target: 'http://backend:3000',
         changeOrigin: true,
-        secure: false,
       },
     },
   },

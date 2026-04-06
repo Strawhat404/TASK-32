@@ -158,7 +158,7 @@
   }
 
   function canAdminister() {
-    return roleLabel === 'Administrator';
+    return roleLabel === 'Administrator' || roleLabel === 'Store Manager';
   }
 
   function canManageBookings() {
@@ -1280,7 +1280,7 @@
                 <div class="mt-3 space-y-2">
                   {#each scoringRankings as ranking}
                     <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                      <p class="font-medium">#{ranking.rank} · {ranking.subject_id}</p>
+                      <p class="font-medium">#{ranking.rank} · {ranking.subject_id_hash}</p>
                       <p class="mt-1 text-xs text-slate-400">Score {ranking.aggregated_score} · Grade {ranking.grade} · Store {ranking.store_code}</p>
                     </div>
                   {/each}
