@@ -36,11 +36,12 @@ if docker compose -f "$ROOT_DIR/docker-compose.yml" ps --status running 2>/dev/n
   if [[ -n "${ADMIN_PASSWORD:-}" ]]; then
     "$ROOT_DIR/API_tests/critical_invariants.sh"
     "$ROOT_DIR/API_tests/integration_e2e.sh"
+    "$ROOT_DIR/API_tests/coverage_extended.sh"
   else
     echo "SKIP: critical API invariants require ADMIN_PASSWORD env"
   fi
 else
-  echo "SKIP: stack not running. Start with: cd repo && docker compose up --build"
+  echo "SKIP: stack not running. Start with: cd repo && docker-compose up --build"
 fi
 
 echo "[5/5] Completed"

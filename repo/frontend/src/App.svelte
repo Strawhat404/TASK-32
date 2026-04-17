@@ -3,34 +3,16 @@
   import ForumSectionTree from './components/ForumSectionTree.svelte';
   import CommerceTab from './components/CommerceTab.svelte';
   import MasterDataTab from './components/MasterDataTab.svelte';
-
-  const ROLE_LABELS = {
-    admin: 'Administrator',
-    moderator: 'Moderator',
-    host: 'Store Manager',
-    user: 'Customer/Member',
-    inventory_clerk: 'Inventory Clerk',
-    store_manager: 'Store Manager',
-    customer_member: 'Customer/Member',
-  };
-
-  const NAV_BY_ROLE = {
-    Administrator: ['scripts', 'resources', 'bookings', 'forum', 'scoring', 'commerce', 'master'],
-    'Store Manager': ['scripts', 'resources', 'bookings', 'forum', 'scoring', 'commerce', 'master'],
-    'Inventory Clerk': ['scripts', 'resources', 'master'],
-    Moderator: ['forum'],
-    'Customer/Member': ['bookings', 'forum', 'scoring', 'commerce'],
-  };
-
-  const TAB_LABELS = {
-    scripts: 'Script Manager',
-    resources: 'Resource Scheduler',
-    bookings: 'Bookings',
-    forum: 'Forum',
-    scoring: 'Scoring',
-    commerce: 'Shop & Checkout',
-    master: 'Master Data',
-  };
+  import {
+    ROLE_LABELS,
+    NAV_BY_ROLE,
+    TAB_LABELS,
+    mapRole as mapRoleFn,
+    canModerate as canModerateFn,
+    canAdminister as canAdministerFn,
+    canManageBookings as canManageBookingsFn,
+    tabVisible as tabVisibleFn,
+  } from './lib/constants.js';
 
   let token = '';
   let user = null;
@@ -146,7 +128,7 @@
   }
 
   function mapRole(role) {
-    return ROLE_LABELS[role] || role;
+    return mapRoleFn(role);
   }
 
   function allowedTabs() {
@@ -154,19 +136,19 @@
   }
 
   function canModerate() {
-    return roleLabel === 'Administrator' || roleLabel === 'Moderator';
+    return canModerateFn(roleLabel);
   }
 
   function canAdminister() {
-    return roleLabel === 'Administrator' || roleLabel === 'Store Manager';
+    return canAdministerFn(roleLabel);
   }
 
   function canManageBookings() {
-    return roleLabel === 'Administrator' || roleLabel === 'Store Manager';
+    return canManageBookingsFn(roleLabel);
   }
 
   function tabVisible(tab) {
-    return allowedTabs().includes(tab);
+    return tabVisibleFn(roleLabel, tab);
   }
 
   function setNotice(message, action = null) {
