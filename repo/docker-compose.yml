@@ -47,6 +47,7 @@ services:
       - ./unit_tests:/unit_tests:ro
       - ./API_tests:/API_tests:ro
       - ./frontend:/frontend:ro
+      - ./backend:/backend:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s

@@ -36,10 +36,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Install frontend node_modules inside the backend container so svelte/compiler is available
+# Install frontend node_modules inside the container so svelte/compiler is resolvable
 echo "  Installing frontend dependencies inside container..."
 docker compose -f "$ROOT_DIR/docker-compose.yml" exec -T backend \
-  sh -c "cd /frontend && npm install --silent 2>/dev/null || true"
+  sh -c "cd /frontend && npm install 2>&1 | tail -3"
 
 echo "[3/5] Unit tests"
 docker compose -f "$ROOT_DIR/docker-compose.yml" exec -T \
